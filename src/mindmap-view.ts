@@ -492,52 +492,64 @@ export class MindmapView extends ItemView {
 	private findNodeInDirection(currentNode: MindmapNodeData, direction: 'up' | 'down' | 'left' | 'right'): MindmapNodeData | null {
 		if (!this.mindmapData || !currentNode.x || !currentNode.y) return null;
 		
-		// 对于右和下方向，优先考虑子节点
-		if ((direction === 'right' || direction === 'down') && currentNode.children.length > 0) {
-			// 找到未折叠的第一个子节点
-			const visibleChildren = currentNode.children.filter(child => !currentNode.collapsed);
-			if (visibleChildren.length > 0) {
-				return visibleChildren[0];
-			}
-		}
-		
-		// 对于左和上方向，优先考虑父节点
-		if ((direction === 'left' || direction === 'up') && currentNode.parent && currentNode.parent.id !== 'root') {
-			return currentNode.parent;
-		}
-		
-		// 如果没有直接的父子关系，使用原来的算法
 		const allNodes = this.getAllNodes(this.mindmapData);
 		let bestNode: MindmapNodeData | null = null;
-		let bestDistance = Infinity;
+		let bestScore = Infinity;
 		
 		for (const node of allNodes) {
 			if (node.id === currentNode.id || !node.x || !node.y) continue;
 			
 			const dx = node.x - currentNode.x;
 			const dy = node.y - currentNode.y;
-			const distance = Math.sqrt(dx * dx + dy * dy);
 			
-			// 根据方向筛选节点
-			let isInDirection = false;
+			// 根据方向进行精确的方向性检查
+			let isValidDirection = false;
+			let primaryDistance = 0;
+			let secondaryDistance = 0;
+			
 			switch (direction) {
 				case 'up':
-					isInDirection = dy < -50 && Math.abs(dx) < Math.abs(dy) * 2;
+					// 向上：y坐标更小，优先选择垂直距离最小的
+					if (dy < -20) { // 必须确实在上方
+						isValidDirection = true;
+						primaryDistance = Math.abs(dy); // 主要考虑垂直距离
+						secondaryDistance = Math.abs(dx); // 次要考虑水平距离
+					}
 					break;
 				case 'down':
-					isInDirection = dy > 50 && Math.abs(dx) < Math.abs(dy) * 2;
+					// 向下：y坐标更大，优先选择垂直距离最小的
+					if (dy > 20) { // 必须确实在下方
+						isValidDirection = true;
+						primaryDistance = Math.abs(dy);
+						secondaryDistance = Math.abs(dx);
+					}
 					break;
 				case 'left':
-					isInDirection = dx < -50 && Math.abs(dy) < Math.abs(dx) * 2;
+					// 向左：x坐标更小，优先选择水平距离最小的
+					if (dx < -20) { // 必须确实在左边
+						isValidDirection = true;
+						primaryDistance = Math.abs(dx); // 主要考虑水平距离
+						secondaryDistance = Math.abs(dy); // 次要考虑垂直距离
+					}
 					break;
 				case 'right':
-					isInDirection = dx > 50 && Math.abs(dy) < Math.abs(dx) * 2;
+					// 向右：x坐标更大，优先选择水平距离最小的
+					if (dx > 20) { // 必须确实在右边
+						isValidDirection = true;
+						primaryDistance = Math.abs(dx);
+						secondaryDistance = Math.abs(dy);
+					}
 					break;
 			}
 			
-			if (isInDirection && distance < bestDistance) {
-				bestDistance = distance;
-				bestNode = node;
+			if (isValidDirection) {
+				// 计算综合得分：主要距离权重更高
+				const score = primaryDistance + (secondaryDistance * 0.3);
+				
+				if (score < bestScore) {
+					bestScore = score;
+					bestNode = node;
+				}
 			}
 		}
 		
