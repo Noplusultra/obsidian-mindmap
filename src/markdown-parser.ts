@@ -33,6 +33,7 @@ export class MarkdownParser {
 
 		const nodeStack: MindmapNodeData[] = [root];
 		let currentId = 1;
+		let hasH1 = false; // 检查是否有一级标题
 
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
@@ -43,6 +44,11 @@ export class MarkdownParser {
 			const node = this.parseLine(line, i, currentId++);
 			if (!node) continue;
 
+			// 检查是否有一级标题
+			if (node.type === 'header' && node.level === 1) {
+				hasH1 = true;
+			}
+
 			// 找到正确的父节点
 			const parentNode = this.findParentNode(nodeStack, node);
 			node.parent = parentNode;
@@ -50,6 +56,50 @@ export class MarkdownParser {
 
 			// 更新节点栈
 			this.updateNodeStack(nodeStack, node);
+		}
+
+		// 如果内容为空，创建默认根节点
+		if (root.children.length === 0) {
+			const defaultRoot: MindmapNodeData = {
+				id: `node-${currentId}`,
+				text: '中心主题',
+				level: 1,
+				type: 'header',
+				children: [],
+				parent: root,
+				lineNumber: -1,
+				originalText: '',
+				hasWikilink: false,
+				wikilinks: [],
+				color: 'red'
+			};
+			root.children.push(defaultRoot);
+		}
+		// 如果有内容但没有一级标题，创建一个默认的一级标题作为根节点
+		else if (!hasH1) {
+			const existingChildren = [...root.children];
+			root.children = [];
+			
+			const autoRoot: MindmapNodeData = {
+				id: `node-${currentId}`,
+				text: '主要内容',
+				level: 1,
+				type: 'header',
+				children: existingChildren,
+				parent: root,
+				lineNumber: -1,
+				originalText: '',
+				hasWikilink: false,
+				wikilinks: [],
+				color: 'red'
+			};
+			
+			// 重新设置子节点的父节点引用
+			existingChildren.forEach(child => {
+				child.parent = autoRoot;
+			});
+			
+			root.children.push(autoRoot);
 		}
 
 		return root;

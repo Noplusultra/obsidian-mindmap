@@ -58,6 +58,37 @@ export class MindmapView extends ItemView {
 		try {
 			const content = await this.app.vault.read(file);
 			this.mindmapData = MarkdownParser.parseMarkdown(content);
+			
+			// 确保即使是空文档也有思维导图数据
+			if (!this.mindmapData || this.mindmapData.children.length === 0) {
+				// 创建默认的思维导图结构
+				const root: MindmapNodeData = {
+					id: 'root',
+					text: '根节点',
+					level: 0,
+					type: 'header',
+					children: [{
+						id: 'node-1',
+						text: '中心主题',
+						level: 1,
+						type: 'header',
+						children: [],
+						lineNumber: -1,
+						originalText: '',
+						hasWikilink: false,
+						wikilinks: [],
+						color: 'red'
+					}],
+					lineNumber: -1,
+					originalText: '',
+					hasWikilink: false,
+					wikilinks: []
+				};
+				// 设置父子关系
+				root.children[0].parent = root;
+				this.mindmapData = root;
+			}
+			
 			MarkdownParser.calculateNodePositions(this.mindmapData);
 			
 			// 刷新显示
@@ -150,7 +181,7 @@ export class MindmapView extends ItemView {
 		// 设置网格显示状态
 		this.mindmapCanvas.setGridVisible(this.plugin.settings.showGrid);
 		
-		// 如果有数据，渲染思维导图
+		// 渲染思维导图（现在总是有数据）
 		if (this.mindmapData) {
 			this.mindmapCanvas.renderMindmap(this.mindmapData);
 			// 自动选中中心节点
@@ -158,6 +189,13 @@ export class MindmapView extends ItemView {
 			if (centerNode) {
 				this.mindmapCanvas.selectNode(centerNode.id);
 			}
+		} else {
+			// 如果仍然没有数据，显示空画布提示
+			const emptyMessage = container.createDiv('mindmap-empty-message');
+			emptyMessage.textContent = '无法解析文档内容，请检查文档格式';
+			emptyMessage.style.textAlign = 'center';
+			emptyMessage.style.marginTop = '50px';
+			emptyMessage.style.color = 'var(--text-muted)';
 		}
 	}
 
