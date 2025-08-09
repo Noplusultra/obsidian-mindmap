@@ -135,22 +135,37 @@ export class MindmapCanvas {
 		const nodeText = nodeElement.createDiv('node-text');
 		this.renderNodeText(nodeText, node);
 
-		// 如果节点有子节点且被折叠，添加展开指示器
+		// 如果节点有子节点，添加折叠/展开指示器
 		if (node.children.length > 0) {
-			const indicator = nodeElement.createDiv('collapse-indicator');
-			indicator.textContent = node.collapsed ? '+' : '-';
-			indicator.style.position = 'absolute';
-			indicator.style.right = '4px';
-			indicator.style.top = '4px';
-			indicator.style.width = '16px';
-			indicator.style.height = '16px';
-			indicator.style.borderRadius = '50%';
-			indicator.style.backgroundColor = 'var(--interactive-accent)';
-			indicator.style.color = 'var(--text-on-accent)';
-			indicator.style.fontSize = '12px';
-			indicator.style.textAlign = 'center';
-			indicator.style.lineHeight = '16px';
-			indicator.style.cursor = 'pointer';
+			// 右上角的折叠/展开按钮
+			const toggleBtn = nodeElement.createDiv('collapse-toggle');
+			toggleBtn.textContent = node.collapsed ? '+' : '-';
+			toggleBtn.style.position = 'absolute';
+			toggleBtn.style.right = '4px';
+			toggleBtn.style.top = '4px';
+			toggleBtn.style.width = '16px';
+			toggleBtn.style.height = '16px';
+			toggleBtn.style.borderRadius = '50%';
+			toggleBtn.style.backgroundColor = 'var(--interactive-accent)';
+			toggleBtn.style.color = 'var(--text-on-accent)';
+			toggleBtn.style.fontSize = '12px';
+			toggleBtn.style.textAlign = 'center';
+			toggleBtn.style.lineHeight = '16px';
+			toggleBtn.style.cursor = 'pointer';
+			
+			// 如果是折叠状态，在节点下方添加省略号指示器
+			if (node.collapsed) {
+				const dotIndicator = nodeElement.createDiv('collapsed-indicator');
+				dotIndicator.textContent = '•••';
+				dotIndicator.style.position = 'absolute';
+				dotIndicator.style.bottom = '-20px';
+				dotIndicator.style.left = '50%';
+				dotIndicator.style.transform = 'translateX(-50%)';
+				dotIndicator.style.color = 'var(--text-muted)';
+				dotIndicator.style.fontSize = '14px';
+				dotIndicator.style.fontWeight = 'bold';
+				dotIndicator.style.letterSpacing = '2px';
+			}
 		}
 
 		// 存储节点元素引用
@@ -181,10 +196,25 @@ export class MindmapCanvas {
 			textElement.querySelectorAll('.wikilink').forEach(link => {
 				link.addEventListener('click', (e) => {
 					e.stopPropagation();
-					const linkText = link.getAttribute('data-link');
-					if (linkText) {
-						this.view.onWikilinkClick(linkText);
+					e.preventDefault();
+					
+					// 检查是否在编辑模式下
+					const isEditing = textElement.parentElement?.querySelector('.node-input') !== null;
+					if (!isEditing) {
+						const linkText = link.getAttribute('data-link');
+						if (linkText) {
+							this.view.onWikilinkClick(linkText);
+						}
 					}
+				});
+				
+				// 添加悬停效果
+				link.addEventListener('mouseenter', () => {
+					(link as HTMLElement).style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
+				});
+				
+				link.addEventListener('mouseleave', () => {
+					(link as HTMLElement).style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
 				});
 			});
 		} else {
@@ -199,10 +229,10 @@ export class MindmapCanvas {
 			this.selectNode(node.id);
 		});
 
-		// 双击折叠/展开节点
+		// 双击编辑节点
 		element.addEventListener('dblclick', (e) => {
 			e.stopPropagation();
-			this.toggleNodeCollapse(node);
+			this.startEditing(node);
 		});
 
 		// 右键菜单
@@ -227,10 +257,10 @@ export class MindmapCanvas {
 			}
 		});
 
-		// 折叠指示器点击事件
-		const indicator = element.querySelector('.collapse-indicator');
-		if (indicator) {
-			indicator.addEventListener('click', (e) => {
+		// 折叠按钮点击事件
+		const toggleBtn = element.querySelector('.collapse-toggle');
+		if (toggleBtn) {
+			toggleBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
 				this.toggleNodeCollapse(node);
 			});
@@ -352,12 +382,15 @@ export class MindmapCanvas {
 	}
 
 	private drawConnections(node: MindmapNodeData) {
-		node.children.forEach(child => {
-			if (node.id !== 'root') { // 不为根节点绘制连接线
-				this.drawConnection(node, child);
-			}
-			this.drawConnections(child); // 递归绘制子节点的连接线
-		});
+		// 只为未折叠的节点绘制连接线
+		if (!node.collapsed) {
+			node.children.forEach(child => {
+				if (node.id !== 'root') { // 不为根节点绘制连接线
+					this.drawConnection(node, child);
+				}
+				this.drawConnections(child); // 递归绘制子节点的连接线
+			});
+		}
 	}
 
 	private drawConnection(parentNode: MindmapNodeData, childNode: MindmapNodeData) {

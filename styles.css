@@ -325,25 +325,34 @@
 
 /* 双链样式 */
 .wikilink {
-  color: var(--link-color);
+  color: #3b82f6;
   cursor: pointer;
   text-decoration: none;
-  border-bottom: 1px solid transparent;
+  border-bottom: 1px solid #3b82f6;
   transition: all 0.2s ease;
   font-weight: 500;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background-color: rgba(59, 130, 246, 0.1);
 }
 
 .wikilink:hover {
-  color: var(--link-color-hover);
-  border-bottom-color: var(--link-color-hover);
-  background-color: rgba(var(--link-color-rgb), 0.1);
-  border-radius: 2px;
-  padding: 0 2px;
+  color: #1d4ed8;
+  border-bottom-color: #1d4ed8;
+  background-color: rgba(59, 130, 246, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
 }
 
 .wikilink:active {
-  color: var(--link-color-pressed);
-  background-color: rgba(var(--link-color-rgb), 0.2);
+  color: #1e40af;
+  background-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(0px);
+}
+
+/* 在编辑模式下禁用双链交互 */
+.node-input + .wikilink {
+  pointer-events: none;
 }
 
 /* 根据节点层级调整样式 */
@@ -375,33 +384,46 @@
 
 /* 节点颜色样式 */
 .node-color-red {
-  background-color: #ef4444 !important;
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
   color: white !important;
   border-color: #dc2626 !important;
 }
 
 .node-color-blue {
-  background-color: #3b82f6 !important;
+  background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
   color: white !important;
   border-color: #2563eb !important;
 }
 
 .node-color-green {
-  background-color: #22c55e !important;
+  background: linear-gradient(135deg, #22c55e, #16a34a) !important;
   color: white !important;
   border-color: #16a34a !important;
 }
 
 .node-color-orange {
-  background-color: #f97316 !important;
+  background: linear-gradient(135deg, #f97316, #ea580c) !important;
   color: white !important;
   border-color: #ea580c !important;
 }
 
 .node-color-purple {
-  background-color: #a855f7 !important;
+  background: linear-gradient(135deg, #a855f7, #9333ea) !important;
   color: white !important;
   border-color: #9333ea !important;
+}
+
+/* 有颜色的节点选中时保持原色，只添加边框 */
+.node-color-red.selected,
+.node-color-blue.selected,
+.node-color-green.selected,
+.node-color-orange.selected,
+.node-color-purple.selected {
+  border-width: 4px !important;
+  box-shadow: 
+    0 0 0 3px rgba(255, 255, 255, 0.8),
+    0 8px 20px rgba(0, 0, 0, 0.3) !important;
+  transform: scale(1.05) !important;
 }
 
 /* 右键菜单样式 */

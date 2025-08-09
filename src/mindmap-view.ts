@@ -202,15 +202,29 @@ export class MindmapView extends ItemView {
 			return;
 		}
 
+		// 记住父节点，稍后选中它
+		const parentNode = selectedNode.parent;
+
 		// 从父节点中移除
-		const parent = selectedNode.parent;
-		const index = parent.children.indexOf(selectedNode);
+		const index = parentNode.children.indexOf(selectedNode);
 		if (index > -1) {
-			parent.children.splice(index, 1);
+			parentNode.children.splice(index, 1);
 		}
 
+		// 重新计算位置并渲染
 		MarkdownParser.calculateNodePositions(this.mindmapData);
 		this.mindmapCanvas.renderMindmap(this.mindmapData);
+
+		// 选中父节点（如果父节点不是根节点）
+		if (parentNode.id !== 'root') {
+			this.mindmapCanvas.selectNode(parentNode.id);
+		} else {
+			// 如果父节点是根节点，选中中心节点
+			const centerNode = this.findCenterNode(this.mindmapData);
+			if (centerNode) {
+				this.mindmapCanvas.selectNode(centerNode.id);
+			}
+		}
 	}
 
 	async saveToFile() {
@@ -250,8 +264,26 @@ export class MindmapView extends ItemView {
 
 	// 处理双链点击
 	async onWikilinkClick(wikilink: string) {
-		// 使用Obsidian的链接处理功能
-		await this.app.workspace.openLinkText(wikilink, this.currentFile?.path || '');
+		try {
+			// 使用Obsidian的链接处理功能，在当前标签页打开
+			const { workspace } = this.app;
+			
+			// 清理链接文本，移除可能的别名
+			const cleanLink = wikilink.split('|')[0].trim();
+			
+			// 在当前叶子节点中打开链接
+			const file = this.app.metadataCache.getFirstLinkpathDest(cleanLink, this.currentFile?.path || '');
+			if (file) {
+				await this.leaf.openFile(file);
+			} else {
+				// 如果文件不存在，使用workspace的方法创建并打开
+				const newFile = await this.app.vault.create(cleanLink + '.md', '');
+				await this.leaf.openFile(newFile);
+			}
+		} catch (error) {
+			console.error('Error opening wikilink:', error);
+			new Notice(`无法打开链接: ${wikilink}`);
+		}
 	}
 
 	private setupKeyboardListeners() {
