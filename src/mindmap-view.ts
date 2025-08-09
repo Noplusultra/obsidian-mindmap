@@ -230,6 +230,11 @@ export class MindmapView extends ItemView {
 				this.mindmapCanvas.selectNode(centerNode.id);
 			}
 		}
+
+		// 自动保存
+		if (this.plugin.settings.autoSave) {
+			this.autoSaveDebounced();
+		}
 	}
 
 	async saveToFile() {
@@ -278,7 +283,11 @@ export class MindmapView extends ItemView {
 	}
 
 	private autoSaveDebounced = this.debounce(async () => {
-		await this.saveToFile();
+		try {
+			await this.saveToFile();
+		} catch (error) {
+			console.error('Auto save failed:', error);
+		}
 	}, 1000);
 
 	private debounce(func: Function, wait: number) {
@@ -335,8 +344,17 @@ export class MindmapView extends ItemView {
 		});
 		
 		// 确保容器可以接收焦点
-		this.containerEl.setAttribute('tabindex', '-1');
-		this.containerEl.focus();
+		this.containerEl.setAttribute('tabindex', '0');
+		
+		// 添加点击事件确保容器获得焦点
+		this.containerEl.addEventListener('click', () => {
+			this.containerEl.focus();
+		});
+		
+		// 立即设置焦点
+		setTimeout(() => {
+			this.containerEl.focus();
+		}, 100);
 	}
 
 	private handleKeyDown(e: KeyboardEvent) {
@@ -349,16 +367,16 @@ export class MindmapView extends ItemView {
 		const selectedNode = this.mindmapCanvas.getSelectedNode();
 		const settings = this.plugin.settings;
 		
-		// 检查删除快捷键
-		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode && !this.isEditing()) {
+		// 检查删除快捷键 - 使用设置中的配置
+		if ((e.key === settings.deleteKey || e.key === 'Delete' || e.key === 'Backspace') && selectedNode && !this.isEditing()) {
 			e.preventDefault();
 			e.stopPropagation();
 			this.deleteSelectedNode();
 			return;
 		}
 		
-		// 检查添加子节点快捷键
-		if (e.key === 'Tab' && selectedNode && !this.isEditing()) {
+		// 检查添加子节点快捷键 - 使用设置中的配置
+		if ((e.key === settings.addChildKey || e.key === 'Tab') && selectedNode && !this.isEditing()) {
 			e.preventDefault();
 			e.stopPropagation();
 			this.addChildToSelectedNode();
@@ -437,6 +455,7 @@ export class MindmapView extends ItemView {
 	private addChildToSelectedNode() {
 		const selectedNode = this.mindmapCanvas.getSelectedNode();
 		if (!selectedNode || !this.mindmapData) {
+			new Notice('请先选择一个父节点');
 			return;
 		}
 
@@ -463,6 +482,11 @@ export class MindmapView extends ItemView {
 		
 		// 选中新创建的节点
 		this.mindmapCanvas.selectNode(newNode.id);
+		
+		// 自动保存
+		if (this.plugin.settings.autoSave) {
+			this.autoSaveDebounced();
+		}
 	}
 
 	private navigateNode(direction: 'up' | 'down' | 'left' | 'right') {
@@ -495,80 +519,73 @@ export class MindmapView extends ItemView {
 		const allNodes = this.getAllNodes(this.mindmapData);
 		let bestNode: MindmapNodeData | null = null;
 		let bestScore = Infinity;
+		const threshold = 30; // 方向判断的阈值
 		
 		for (const node of allNodes) {
 			if (node.id === currentNode.id || !node.x || !node.y) continue;
 			
 			const dx = node.x - currentNode.x;
 			const dy = node.y - currentNode.y;
+			const distance = Math.sqrt(dx * dx + dy * dy);
 			
-			// 根据方向进行精确的方向性检查
 			let isValidDirection = false;
-			let primaryDistance = 0;
-			let secondaryDistance = 0;
+			let score = distance;
 			
 			switch (direction) {
 				case 'up':
-					// 向上：y坐标更小，优先选择垂直距离最小的
-					if (dy < -20) { // 必须确实在上方
+					// 向上：y坐标必须更小
+					if (dy < -threshold) {
 						isValidDirection = true;
-						primaryDistance = Math.abs(dy); // 主要考虑垂直距离
-						secondaryDistance = Math.abs(dx); // 次要考虑水平距离
+						// 优先选择最接近垂直上方的节点
+						const angle = Math.abs(Math.atan2(Math.abs(dx), Math.abs(dy)) * 180 / Math.PI);
+						score = distance + (angle * 2); // 角度偏差越大，分数越高
 					}
 					break;
 				case 'down':
-					// 向下：y坐标更大，优先选择垂直距离最小的
-					if (dy > 20) { // 必须确实在下方
+					// 向下：y坐标必须更大
+					if (dy > threshold) {
 						isValidDirection = true;
-						primaryDistance = Math.abs(dy);
-						secondaryDistance = Math.abs(dx);
+						const angle = Math.abs(Math.atan2(Math.abs(dx), Math.abs(dy)) * 180 / Math.PI);
+						score = distance + (angle * 2);
 					}
 					break;
 				case 'left':
-					// 向左：x坐标更小，优先选择水平距离最小的
-					if (dx < -20) { // 必须确实在左边
+					// 向左：x坐标必须更小
+					if (dx < -threshold) {
 						isValidDirection = true;
-						primaryDistance = Math.abs(dx); // 主要考虑水平距离
-						secondaryDistance = Math.abs(dy); // 次要考虑垂直距离
+						// 优先选择最接近水平左侧的节点
+						const angle = Math.abs(Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI);
+						score = distance + (angle * 2);
 					}
 					break;
 				case 'right':
-					// 向右：x坐标更大，优先选择水平距离最小的
-					if (dx > 20) { // 必须确实在右边
+					// 向右：x坐标必须更大
+					if (dx > threshold) {
 						isValidDirection = true;
-						primaryDistance = Math.abs(dx);
-						secondaryDistance = Math.abs(dy);
+						const angle = Math.abs(Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI);
+						score = distance + (angle * 2);
 					}
 					break;
 			}
 			
 			if (isValidDirection) {
-				// 检查是否为同级节点（同一个父节点）
+				// 根据结构关系调整优先级
+				const isChild = currentNode.children.includes(node);
+				const isParent = node.children.includes(currentNode);
 				const isSibling = currentNode.parent && node.parent && 
 								  currentNode.parent.id === node.parent.id;
 				
-				// 检查是否在同一水平线上（用于上下导航的优先级）
-				const isOnSameHorizontalLevel = Math.abs(currentNode.x! - node.x!) < 50;
-				
-				// 检查是否在同一垂直线上（用于左右导航的优先级）
-				const isOnSameVerticalLevel = Math.abs(currentNode.y! - node.y!) < 50;
-				
-				// 计算基础得分：主要距离权重更高
-				let score = primaryDistance + (secondaryDistance * 0.3);
-				
-				// 同级节点优先级更高
-				if (isSibling) {
-					score *= 0.5; // 同级节点得分减半（优先级更高）
+				// 优先级调整
+				if (isChild || isParent) {
+					score *= 0.6; // 父子关系优先
+				} else if (isSibling) {
+					score *= 0.8; // 兄弟关系次优先
 				}
 				
-				// 对于上下导航，在同一水平线上的节点优先级更高
-				if ((direction === 'up' || direction === 'down') && isOnSameHorizontalLevel) {
-					score *= 0.7;
-				}
-				
-				// 对于左右导航，在同一垂直线上的节点优先级更高
-				if ((direction === 'left' || direction === 'right') && isOnSameVerticalLevel) {
-					score *= 0.7;
+				// 对于水平方向，同一层级的节点优先
+				if ((direction === 'left' || direction === 'right')) {
+					const levelDiff = Math.abs(currentNode.level - node.level);
+					score += levelDiff * 10;
 				}
 				
 				if (score < bestScore) {

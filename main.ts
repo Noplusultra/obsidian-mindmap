@@ -154,11 +154,21 @@ export default class MindmapPlugin extends Plugin {
 		const activeLeaf = workspace.getActiveViewOfType(MindmapView);
 		
 		if (activeLeaf) {
-			// 当前是思维导图模式，切换到MD编辑器
-			await workspace.openLinkText(activeFile.path, '');
+			// 当前是思维导图模式，在当前叶子节点中切换到MD编辑器
+			const leaf = workspace.activeLeaf;
+			if (leaf) {
+				await leaf.openFile(activeFile);
+			}
 		} else {
-			// 当前是MD编辑器，切换到思维导图模式
-			await this.openFileInMindmapView(activeFile);
+			// 当前是MD编辑器，在当前叶子节点中切换到思维导图模式
+			const currentLeaf = workspace.activeLeaf;
+			if (currentLeaf) {
+				await currentLeaf.setViewState({ 
+					type: VIEW_TYPE_MINDMAP, 
+					active: true,
+					state: { file: activeFile.path }
+				});
+			}
 		}
 	}
 
