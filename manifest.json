@@ -1,0 +1,11 @@
+{
+  "id": "obsidian-mindmap",
+  "name": "思维导图",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "在Obsidian中创建和编辑思维导图",
+  "author": "你的名字",
+  "authorUrl": "",
+  "fundingUrl": "",
+  "isDesktopOnly": false
+}
