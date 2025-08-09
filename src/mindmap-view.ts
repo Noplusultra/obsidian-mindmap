@@ -543,8 +543,33 @@ export class MindmapView extends ItemView {
 			}
 			
 			if (isValidDirection) {
-				// 计算综合得分：主要距离权重更高
-				const score = primaryDistance + (secondaryDistance * 0.3);
+				// 检查是否为同级节点（同一个父节点）
+				const isSibling = currentNode.parent && node.parent && 
+								  currentNode.parent.id === node.parent.id;
+				
+				// 检查是否在同一水平线上（用于上下导航的优先级）
+				const isOnSameHorizontalLevel = Math.abs(currentNode.x! - node.x!) < 50;
+				
+				// 检查是否在同一垂直线上（用于左右导航的优先级）
+				const isOnSameVerticalLevel = Math.abs(currentNode.y! - node.y!) < 50;
+				
+				// 计算基础得分：主要距离权重更高
+				let score = primaryDistance + (secondaryDistance * 0.3);
+				
+				// 同级节点优先级更高
+				if (isSibling) {
+					score *= 0.5; // 同级节点得分减半（优先级更高）
+				}
+				
+				// 对于上下导航，在同一水平线上的节点优先级更高
+				if ((direction === 'up' || direction === 'down') && isOnSameHorizontalLevel) {
+					score *= 0.7;
+				}
+				
+				// 对于左右导航，在同一垂直线上的节点优先级更高
+				if ((direction === 'left' || direction === 'right') && isOnSameVerticalLevel) {
+					score *= 0.7;
+				}
 				
 				if (score < bestScore) {
 					bestScore = score;
