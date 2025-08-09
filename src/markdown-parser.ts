@@ -202,54 +202,71 @@ export class MarkdownParser {
 		const mainBranches = centerNode.children;
 		if (mainBranches.length === 0) return;
 
-		// 计算每一边分配多少个分支
 		const totalBranches = mainBranches.length;
 		const rightCount = Math.ceil(totalBranches / 2);
 		const leftCount = totalBranches - rightCount;
 
-		const verticalSpacing = 100; // 分支间的垂直间距
-		const horizontalDistance = 300; // 水平距离
+		const horizontalDistance = 280; // 主分支与中心节点的水平距离
 
-		// 安排右侧分支
+		// 计算右侧分支的总高度需求
+		const rightBranches = mainBranches.slice(0, rightCount);
+		const rightHeights = rightBranches.map(branch => this.calculateBranchHeight(branch));
+		const rightTotalHeight = rightHeights.reduce((sum, height) => sum + height, 0);
+		
+		// 为右侧分支安排位置
+		let rightCurrentY = centerY - rightTotalHeight / 2;
 		for (let i = 0; i < rightCount; i++) {
-			const branch = mainBranches[i];
-			const offsetFromCenter = (i - (rightCount - 1) / 2) * verticalSpacing;
-			
+			const branch = rightBranches[i];
+			const branchHeight = rightHeights[i];
 			branch.x = centerX + horizontalDistance;
-			branch.y = centerY + offsetFromCenter;
-			
-			// 递归安排子节点
+			branch.y = rightCurrentY + branchHeight / 2;
 			this.arrangeHorizontalSubtree(branch, 'right', 0);
+			rightCurrentY += branchHeight;
 		}
 
-		// 安排左侧分支
+		// 计算左侧分支的总高度需求
+		const leftBranches = mainBranches.slice(rightCount);
+		const leftHeights = leftBranches.map(branch => this.calculateBranchHeight(branch));
+		const leftTotalHeight = leftHeights.reduce((sum, height) => sum + height, 0);
+		
+		// 为左侧分支安排位置
+		let leftCurrentY = centerY - leftTotalHeight / 2;
 		for (let i = 0; i < leftCount; i++) {
-			const branch = mainBranches[rightCount + i];
-			const offsetFromCenter = (i - (leftCount - 1) / 2) * verticalSpacing;
-			
+			const branch = leftBranches[i];
+			const branchHeight = leftHeights[i];
 			branch.x = centerX - horizontalDistance;
-			branch.y = centerY + offsetFromCenter;
-			
-			// 递归安排子节点
+			branch.y = leftCurrentY + branchHeight / 2;
 			this.arrangeHorizontalSubtree(branch, 'left', 0);
+			leftCurrentY += branchHeight;
 		}
+	}
+
+	private static calculateBranchHeight(branch: MindmapNodeData): number {
+		if (branch.children.length === 0 || branch.collapsed) {
+			return 120; // 基础分支高度
+		}
+		
+		// 递归计算所有子分支的高度
+		const childHeights = branch.children.map(child => this.calculateBranchHeight(child));
+		const totalChildHeight = childHeights.reduce((sum, height) => sum + height, 0);
+		
+		// 分支高度是所有子分支高度的总和，至少为基础高度
+		return Math.max(totalChildHeight, 120);
 	}
 
 	private static arrangeHorizontalSubtree(parentNode: MindmapNodeData, direction: 'left' | 'right', level: number): void {
 		const children = parentNode.children;
 		if (children.length === 0) return;
 
-		// 根据层级调整间距，越深层间距越小但不会太小
-		const baseHorizontalSpacing = 220;
-		const baseVerticalSpacing = 100;
-		const horizontalSpacing = Math.max(baseHorizontalSpacing - (level * 20), 150);
-		const verticalSpacing = Math.max(baseVerticalSpacing - (level * 10), 60);
+		// 根据层级调整间距，保证足够的空间
+		const baseHorizontalSpacing = 200;
+		const horizontalSpacing = Math.max(baseHorizontalSpacing - (level * 15), 140);
 		
 		const directionMultiplier = direction === 'right' ? 1 : -1;
 		const baseX = parentNode.x! + (directionMultiplier * horizontalSpacing);
 
-		// 计算所有子节点需要的总空间，考虑它们的子节点
-		const childHeights = children.map(child => this.calculateSubtreeHeight(child, level + 1));
+		// 使用相同的分支高度计算方法
+		const childHeights = children.map(child => this.calculateBranchHeight(child));
 		const totalRequiredHeight = childHeights.reduce((sum, height) => sum + height, 0);
 		
 		// 计算起始Y位置
@@ -267,19 +284,6 @@ export class MarkdownParser {
 			// 更新Y位置到下一个子节点
 			currentY += childHeight;
 		});
-	}
-
-	private static calculateSubtreeHeight(node: MindmapNodeData, level: number): number {
-		if (node.children.length === 0 || node.collapsed) {
-			return Math.max(100 - (level * 10), 60); // 单个节点的最小高度
-		}
-
-		// 递归计算所有子节点的高度
-		const childHeights = node.children.map(child => this.calculateSubtreeHeight(child, level + 1));
-		const totalChildHeight = childHeights.reduce((sum, height) => sum + height, 0);
-		
-		// 子树的高度是所有子节点高度的总和，但至少要有最小间距
-		return Math.max(totalChildHeight, Math.max(100 - (level * 10), 60));
 	}
 
 	private static arrangeSubBranches(branchNode: MindmapNodeData, baseAngle: number, spacing: number): void {

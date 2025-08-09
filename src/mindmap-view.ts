@@ -318,30 +318,41 @@ export class MindmapView extends ItemView {
 	}
 
 	private setupKeyboardListeners() {
-		// 添加键盘事件监听器到画布容器
-		const canvasContainer = this.containerEl.querySelector('.mindmap-canvas-container');
-		if (canvasContainer) {
-			canvasContainer.addEventListener('keydown', (e: KeyboardEvent) => {
+		// 在document上添加全局键盘监听，确保能捕获所有按键
+		const keydownHandler = (e: KeyboardEvent) => {
+			// 只在思维导图视图处于激活状态时处理
+			const activeView = this.app.workspace.getActiveViewOfType(MindmapView);
+			if (activeView === this) {
 				this.handleKeyDown(e);
-			});
-			(canvasContainer as HTMLElement).setAttribute('tabindex', '-1');
-			(canvasContainer as HTMLElement).focus();
-		}
+			}
+		};
 		
-		// 也在主容器上添加
-		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
-			this.handleKeyDown(e);
+		document.addEventListener('keydown', keydownHandler);
+		
+		// 存储handler引用以便清理
+		this.register(() => {
+			document.removeEventListener('keydown', keydownHandler);
 		});
+		
+		// 确保容器可以接收焦点
 		this.containerEl.setAttribute('tabindex', '-1');
+		this.containerEl.focus();
 	}
 
 	private handleKeyDown(e: KeyboardEvent) {
+		// 如果当前在输入框中或者在编辑状态，不处理快捷键
+		const target = e.target as HTMLElement;
+		if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+			return;
+		}
+		
 		const selectedNode = this.mindmapCanvas.getSelectedNode();
 		const settings = this.plugin.settings;
 		
 		// 检查删除快捷键
 		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode && !this.isEditing()) {
 			e.preventDefault();
+			e.stopPropagation();
 			this.deleteSelectedNode();
 			return;
 		}
@@ -349,6 +360,7 @@ export class MindmapView extends ItemView {
 		// 检查添加子节点快捷键
 		if (e.key === 'Tab' && selectedNode && !this.isEditing()) {
 			e.preventDefault();
+			e.stopPropagation();
 			this.addChildToSelectedNode();
 			return;
 		}
@@ -356,6 +368,7 @@ export class MindmapView extends ItemView {
 		// 检查i键编辑快捷键
 		if (e.key === 'i' && selectedNode && !this.isEditing()) {
 			e.preventDefault();
+			e.stopPropagation();
 			this.startEditingSelectedNode();
 			return;
 		}
@@ -363,6 +376,7 @@ export class MindmapView extends ItemView {
 		// 检查Ctrl+Z撤销
 		if (e.ctrlKey && e.key === 'z' && !this.isEditing()) {
 			e.preventDefault();
+			e.stopPropagation();
 			this.undo();
 			return;
 		}
