@@ -10,6 +10,8 @@ export class MindmapView extends ItemView {
 	private plugin: MindmapPlugin;
 	private currentFile: TFile | null = null;
 	private mindmapData: MindmapNodeData | null = null;
+	private history: MindmapNodeData[] = [];
+	private historyIndex = -1;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MindmapPlugin) {
 		super(leaf);
@@ -112,13 +114,13 @@ export class MindmapView extends ItemView {
 			this.deleteSelectedNode();
 		});
 
-		// 保存按钮
-		const saveBtn = toolbar.createEl('button', {
-			text: '保存到文件',
+		// 设置按钮
+		const settingsBtn = toolbar.createEl('button', {
+			text: '设置',
 			cls: 'mindmap-btn'
 		});
-		saveBtn.addEventListener('click', () => {
-			this.saveToFile();
+		settingsBtn.addEventListener('click', () => {
+			this.openSettings();
 		});
 
 		// 重置视图按钮
@@ -202,6 +204,9 @@ export class MindmapView extends ItemView {
 			return;
 		}
 
+		// 保存历史记录
+		this.saveToHistory();
+
 		// 记住父节点，稍后选中它
 		const parentNode = selectedNode.parent;
 
@@ -256,10 +261,36 @@ export class MindmapView extends ItemView {
 		}
 	}
 
+	openSettings() {
+		// 打开插件设置
+		(this.app as any).setting.open();
+		(this.app as any).setting.openTabById(this.plugin.manifest.id);
+	}
+
 	// 处理节点编辑
 	async onNodeEdit(node: MindmapNodeData, newText: string) {
 		node.text = newText;
-		// 可以在这里添加实时保存功能
+		
+		// 自动保存功能
+		if (this.plugin.settings.autoSave) {
+			this.autoSaveDebounced();
+		}
+	}
+
+	private autoSaveDebounced = this.debounce(async () => {
+		await this.saveToFile();
+	}, 1000);
+
+	private debounce(func: Function, wait: number) {
+		let timeout: NodeJS.Timeout;
+		return function executedFunction(...args: any[]) {
+			const later = () => {
+				clearTimeout(timeout);
+				func(...args);
+			};
+			clearTimeout(timeout);
+			timeout = setTimeout(later, wait);
+		};
 	}
 
 	// 处理双链点击
@@ -287,14 +318,21 @@ export class MindmapView extends ItemView {
 	}
 
 	private setupKeyboardListeners() {
-		// 添加键盘事件监听器
-		this.containerEl.addEventListener('keydown', (e) => {
+		// 添加键盘事件监听器到画布容器
+		const canvasContainer = this.containerEl.querySelector('.mindmap-canvas-container');
+		if (canvasContainer) {
+			canvasContainer.addEventListener('keydown', (e: KeyboardEvent) => {
+				this.handleKeyDown(e);
+			});
+			(canvasContainer as HTMLElement).setAttribute('tabindex', '-1');
+			(canvasContainer as HTMLElement).focus();
+		}
+		
+		// 也在主容器上添加
+		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
 			this.handleKeyDown(e);
 		});
-		
-		// 确保容器可以接收焦点
 		this.containerEl.setAttribute('tabindex', '-1');
-		this.containerEl.focus();
 	}
 
 	private handleKeyDown(e: KeyboardEvent) {
@@ -309,7 +347,7 @@ export class MindmapView extends ItemView {
 		}
 		
 		// 检查添加子节点快捷键
-		if (e.key === settings.addChildKey && selectedNode && !this.isEditing()) {
+		if (e.key === 'Tab' && selectedNode && !this.isEditing()) {
 			e.preventDefault();
 			this.addChildToSelectedNode();
 			return;
@@ -319,6 +357,13 @@ export class MindmapView extends ItemView {
 		if (e.key === 'i' && selectedNode && !this.isEditing()) {
 			e.preventDefault();
 			this.startEditingSelectedNode();
+			return;
+		}
+
+		// 检查Ctrl+Z撤销
+		if (e.ctrlKey && e.key === 'z' && !this.isEditing()) {
+			e.preventDefault();
+			this.undo();
 			return;
 		}
 		
@@ -380,6 +425,9 @@ export class MindmapView extends ItemView {
 		if (!selectedNode || !this.mindmapData) {
 			return;
 		}
+
+		// 保存历史记录
+		this.saveToHistory();
 
 		// 创建新节点
 		const newNode: MindmapNodeData = {
@@ -516,6 +564,50 @@ export class MindmapView extends ItemView {
 			MarkdownParser.calculateNodePositions(this.mindmapData);
 			this.mindmapCanvas.renderMindmap(this.mindmapData);
 		}
+	}
+
+	private saveToHistory() {
+		if (!this.mindmapData) return;
+		
+		// 深拷贝当前状态
+		const state = JSON.parse(JSON.stringify(this.mindmapData));
+		
+		// 移除历史记录中当前索引之后的所有记录
+		this.history = this.history.slice(0, this.historyIndex + 1);
+		
+		// 添加新状态
+		this.history.push(state);
+		this.historyIndex++;
+		
+		// 限制历史记录数量
+		if (this.history.length > 20) {
+			this.history.shift();
+			this.historyIndex--;
+		}
+	}
+
+	private undo() {
+		if (this.historyIndex > 0) {
+			this.historyIndex--;
+			const previousState = this.history[this.historyIndex];
+			
+			// 恢复节点的父子关系
+			this.restoreNodeReferences(previousState);
+			this.mindmapData = previousState;
+			
+			this.recalculateAndRender();
+			new Notice('已撤销上一步操作');
+		} else {
+			new Notice('没有可撤销的操作');
+		}
+	}
+
+	private restoreNodeReferences(node: MindmapNodeData) {
+		// 重建父子关系引用
+		node.children.forEach(child => {
+			child.parent = node;
+			this.restoreNodeReferences(child);
+		});
 	}
 
 	async onClose() {

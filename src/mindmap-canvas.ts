@@ -137,7 +137,7 @@ export class MindmapCanvas {
 
 		// 如果节点有子节点，添加折叠/展开指示器
 		if (node.children.length > 0) {
-			// 右上角的折叠/展开按钮
+			// 右上角的折叠/展开按钮（默认隐藏）
 			const toggleBtn = nodeElement.createDiv('collapse-toggle');
 			toggleBtn.textContent = node.collapsed ? '+' : '-';
 			toggleBtn.style.position = 'absolute';
@@ -152,6 +152,8 @@ export class MindmapCanvas {
 			toggleBtn.style.textAlign = 'center';
 			toggleBtn.style.lineHeight = '16px';
 			toggleBtn.style.cursor = 'pointer';
+			toggleBtn.style.opacity = '0';
+			toggleBtn.style.transition = 'opacity 0.2s ease';
 			
 			// 如果是折叠状态，在节点下方添加省略号指示器
 			if (node.collapsed) {
@@ -183,13 +185,29 @@ export class MindmapCanvas {
 	private renderNodeText(textElement: HTMLElement, node: MindmapNodeData) {
 		textElement.empty();
 		
-		if (node.hasWikilink && node.wikilinks.length > 0) {
-			// 处理包含双链的文本
+		// 检查并处理双链
+		const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
+		const hasWikilink = wikilinkRegex.test(node.text);
+		
+		if (hasWikilink) {
+			// 重新检测双链
 			let text = node.text;
-			node.wikilinks.forEach(wikilink => {
-				const linkRegex = new RegExp(`\\[\\[${wikilink}\\]\\]`, 'g');
+			const wikilinks: string[] = [];
+			let match;
+			
+			// 重置正则表达式的索引
+			wikilinkRegex.lastIndex = 0;
+			while ((match = wikilinkRegex.exec(node.text)) !== null) {
+				const linkText = match[1].split('|')[0].trim();
+				wikilinks.push(linkText);
+			}
+			
+			// 替换所有双链为可点击的span
+			wikilinks.forEach(wikilink => {
+				const linkRegex = new RegExp(`\\[\\[([^\\]]*\\|?${wikilink.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\\]]*)\\]\\]`, 'g');
 				text = text.replace(linkRegex, `<span class="wikilink" data-link="${wikilink}">[[${wikilink}]]</span>`);
 			});
+			
 			textElement.innerHTML = text;
 			
 			// 为双链添加点击事件
@@ -254,6 +272,21 @@ export class MindmapCanvas {
 				const rect = this.canvasElement.getBoundingClientRect();
 				this.dragOffset.x = e.clientX - rect.left - (node.x || 0);
 				this.dragOffset.y = e.clientY - rect.top - (node.y || 0);
+			}
+		});
+
+		// 鼠标悬停显示折叠按钮
+		element.addEventListener('mouseenter', () => {
+			const toggleBtn = element.querySelector('.collapse-toggle') as HTMLElement;
+			if (toggleBtn) {
+				toggleBtn.style.opacity = '1';
+			}
+		});
+
+		element.addEventListener('mouseleave', () => {
+			const toggleBtn = element.querySelector('.collapse-toggle') as HTMLElement;
+			if (toggleBtn) {
+				toggleBtn.style.opacity = '0';
 			}
 		});
 

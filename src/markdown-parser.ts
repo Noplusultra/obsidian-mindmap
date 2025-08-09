@@ -74,7 +74,8 @@ export class MarkdownParser {
 				lineNumber: lineNumber,
 				originalText: line,
 				hasWikilink: wikilinks.length > 0,
-				wikilinks: wikilinks
+				wikilinks: wikilinks,
+				color: level === 1 ? 'red' : 'default' // 根节点默认红色
 			};
 		}
 
@@ -111,7 +112,9 @@ export class MarkdownParser {
 
 		let match;
 		while ((match = wikilinkRegex.exec(text)) !== null) {
-			wikilinks.push(match[1]);
+			// 处理可能的别名 [[链接|别名]]
+			const linkText = match[1].split('|')[0].trim();
+			wikilinks.push(linkText);
 		}
 
 		// 保留双链的显示，但记录链接信息
@@ -191,39 +194,92 @@ export class MarkdownParser {
 		centerNode.x = centerX;
 		centerNode.y = centerY;
 		
-		// 为主要分支安排位置
-		this.arrangeMainBranches(centerNode, centerX, centerY);
+		// 使用新的水平树形布局
+		this.arrangeHorizontalTree(centerNode, centerX, centerY);
 	}
 
-	private static arrangeMainBranches(centerNode: MindmapNodeData, centerX: number, centerY: number): void {
+	private static arrangeHorizontalTree(centerNode: MindmapNodeData, centerX: number, centerY: number): void {
 		const mainBranches = centerNode.children;
 		if (mainBranches.length === 0) return;
 
-		// 定义主要方向：右、左、上、下，然后是对角线方向
-		const directions = [
-			{ angle: 0, x: 1, y: 0 },      // 右
-			{ angle: Math.PI, x: -1, y: 0 }, // 左
-			{ angle: -Math.PI/2, x: 0, y: -1 }, // 上
-			{ angle: Math.PI/2, x: 0, y: 1 },   // 下
-			{ angle: Math.PI/4, x: 0.7, y: -0.7 }, // 右上
-			{ angle: 3*Math.PI/4, x: -0.7, y: -0.7 }, // 左上
-			{ angle: -Math.PI/4, x: 0.7, y: 0.7 }, // 右下
-			{ angle: -3*Math.PI/4, x: -0.7, y: 0.7 } // 左下
-		];
+		// 计算每一边分配多少个分支
+		const totalBranches = mainBranches.length;
+		const rightCount = Math.ceil(totalBranches / 2);
+		const leftCount = totalBranches - rightCount;
 
-		const baseDistance = 350;
-		const branchSpacing = 150;
+		const verticalSpacing = 100; // 分支间的垂直间距
+		const horizontalDistance = 300; // 水平距离
 
-		mainBranches.forEach((branch, index) => {
-			const direction = directions[index % directions.length];
-			const extraOffset = Math.floor(index / directions.length) * 50;
+		// 安排右侧分支
+		for (let i = 0; i < rightCount; i++) {
+			const branch = mainBranches[i];
+			const offsetFromCenter = (i - (rightCount - 1) / 2) * verticalSpacing;
 			
-			branch.x = centerX + (direction.x * (baseDistance + extraOffset));
-			branch.y = centerY + (direction.y * (baseDistance + extraOffset));
+			branch.x = centerX + horizontalDistance;
+			branch.y = centerY + offsetFromCenter;
 			
-			// 为该分支的子节点安排位置
-			this.arrangeSubBranches(branch, direction.angle, branchSpacing);
+			// 递归安排子节点
+			this.arrangeHorizontalSubtree(branch, 'right', 0);
+		}
+
+		// 安排左侧分支
+		for (let i = 0; i < leftCount; i++) {
+			const branch = mainBranches[rightCount + i];
+			const offsetFromCenter = (i - (leftCount - 1) / 2) * verticalSpacing;
+			
+			branch.x = centerX - horizontalDistance;
+			branch.y = centerY + offsetFromCenter;
+			
+			// 递归安排子节点
+			this.arrangeHorizontalSubtree(branch, 'left', 0);
+		}
+	}
+
+	private static arrangeHorizontalSubtree(parentNode: MindmapNodeData, direction: 'left' | 'right', level: number): void {
+		const children = parentNode.children;
+		if (children.length === 0) return;
+
+		// 根据层级调整间距，越深层间距越小但不会太小
+		const baseHorizontalSpacing = 220;
+		const baseVerticalSpacing = 100;
+		const horizontalSpacing = Math.max(baseHorizontalSpacing - (level * 20), 150);
+		const verticalSpacing = Math.max(baseVerticalSpacing - (level * 10), 60);
+		
+		const directionMultiplier = direction === 'right' ? 1 : -1;
+		const baseX = parentNode.x! + (directionMultiplier * horizontalSpacing);
+
+		// 计算所有子节点需要的总空间，考虑它们的子节点
+		const childHeights = children.map(child => this.calculateSubtreeHeight(child, level + 1));
+		const totalRequiredHeight = childHeights.reduce((sum, height) => sum + height, 0);
+		
+		// 计算起始Y位置
+		let currentY = parentNode.y! - totalRequiredHeight / 2;
+
+		// 为每个子节点安排位置
+		children.forEach((child, index) => {
+			const childHeight = childHeights[index];
+			child.x = baseX;
+			child.y = currentY + childHeight / 2;
+			
+			// 递归处理子节点
+			this.arrangeHorizontalSubtree(child, direction, level + 1);
+			
+			// 更新Y位置到下一个子节点
+			currentY += childHeight;
 		});
+	}
+
+	private static calculateSubtreeHeight(node: MindmapNodeData, level: number): number {
+		if (node.children.length === 0 || node.collapsed) {
+			return Math.max(100 - (level * 10), 60); // 单个节点的最小高度
+		}
+
+		// 递归计算所有子节点的高度
+		const childHeights = node.children.map(child => this.calculateSubtreeHeight(child, level + 1));
+		const totalChildHeight = childHeights.reduce((sum, height) => sum + height, 0);
+		
+		// 子树的高度是所有子节点高度的总和，但至少要有最小间距
+		return Math.max(totalChildHeight, Math.max(100 - (level * 10), 60));
 	}
 
 	private static arrangeSubBranches(branchNode: MindmapNodeData, baseAngle: number, spacing: number): void {
