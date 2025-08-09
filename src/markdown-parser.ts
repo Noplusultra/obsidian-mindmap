@@ -11,6 +11,8 @@ export interface MindmapNodeData {
 	originalText: string;
 	hasWikilink: boolean;
 	wikilinks: string[];
+	color?: 'red' | 'blue' | 'green' | 'orange' | 'purple' | 'default';
+	collapsed?: boolean;
 }
 
 export class MarkdownParser {

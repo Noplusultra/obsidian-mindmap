@@ -398,6 +398,21 @@ export class MindmapView extends ItemView {
 	private findNodeInDirection(currentNode: MindmapNodeData, direction: 'up' | 'down' | 'left' | 'right'): MindmapNodeData | null {
 		if (!this.mindmapData || !currentNode.x || !currentNode.y) return null;
 		
+		// 对于右和下方向，优先考虑子节点
+		if ((direction === 'right' || direction === 'down') && currentNode.children.length > 0) {
+			// 找到未折叠的第一个子节点
+			const visibleChildren = currentNode.children.filter(child => !currentNode.collapsed);
+			if (visibleChildren.length > 0) {
+				return visibleChildren[0];
+			}
+		}
+		
+		// 对于左和上方向，优先考虑父节点
+		if ((direction === 'left' || direction === 'up') && currentNode.parent && currentNode.parent.id !== 'root') {
+			return currentNode.parent;
+		}
+		
+		// 如果没有直接的父子关系，使用原来的算法
 		const allNodes = this.getAllNodes(this.mindmapData);
 		let bestNode: MindmapNodeData | null = null;
 		let bestDistance = Infinity;
@@ -413,16 +428,16 @@ export class MindmapView extends ItemView {
 			let isInDirection = false;
 			switch (direction) {
 				case 'up':
-					isInDirection = dy < -30 && Math.abs(dx) < Math.abs(dy);
+					isInDirection = dy < -50 && Math.abs(dx) < Math.abs(dy) * 2;
 					break;
 				case 'down':
-					isInDirection = dy > 30 && Math.abs(dx) < Math.abs(dy);
+					isInDirection = dy > 50 && Math.abs(dx) < Math.abs(dy) * 2;
 					break;
 				case 'left':
-					isInDirection = dx < -30 && Math.abs(dy) < Math.abs(dx);
+					isInDirection = dx < -50 && Math.abs(dy) < Math.abs(dx) * 2;
 					break;
 				case 'right':
-					isInDirection = dx > 30 && Math.abs(dy) < Math.abs(dx);
+					isInDirection = dx > 50 && Math.abs(dy) < Math.abs(dx) * 2;
 					break;
 			}
 			
@@ -461,6 +476,13 @@ export class MindmapView extends ItemView {
 	updateGridDisplay(showGrid: boolean) {
 		if (this.mindmapCanvas) {
 			this.mindmapCanvas.setGridVisible(showGrid);
+		}
+	}
+
+	recalculateAndRender() {
+		if (this.mindmapData) {
+			MarkdownParser.calculateNodePositions(this.mindmapData);
+			this.mindmapCanvas.renderMindmap(this.mindmapData);
 		}
 	}
 

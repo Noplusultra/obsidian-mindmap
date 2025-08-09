@@ -11,6 +11,12 @@ export class MindmapCanvas {
 	private dragOffset = { x: 0, y: 0 };
 	private mindmapData: MindmapNodeData | null = null;
 	private showGrid = true;
+	private isDraggingCanvas = false;
+	private canvasOffset = { x: 0, y: 0 };
+	private lastCanvasPos = { x: 0, y: 0 };
+	private dragStartTime = 0;
+	private dragOverNode: MindmapNodeData | null = null;
+	private dragOverTimeout: NodeJS.Timeout | null = null;
 
 	constructor(container: HTMLElement, view: MindmapView) {
 		this.container = container;
@@ -33,9 +39,27 @@ export class MindmapCanvas {
 			}
 		});
 
-		// 鼠标移动事件（用于拖拽）
+		// 画布鼠标按下事件
+		this.canvasElement.addEventListener('mousedown', (e) => {
+			if (e.target === this.canvasElement && e.button === 0) {
+				this.isDraggingCanvas = true;
+				this.lastCanvasPos = { x: e.clientX, y: e.clientY };
+				this.canvasElement.style.cursor = 'grabbing';
+			}
+		});
+
+		// 鼠标移动事件
 		this.canvasElement.addEventListener('mousemove', (e) => {
-			if (this.isDragging && this.selectedNodeId && this.mindmapData) {
+			if (this.isDraggingCanvas) {
+				// 拖动画布
+				const deltaX = e.clientX - this.lastCanvasPos.x;
+				const deltaY = e.clientY - this.lastCanvasPos.y;
+				this.canvasOffset.x += deltaX;
+				this.canvasOffset.y += deltaY;
+				this.lastCanvasPos = { x: e.clientX, y: e.clientY };
+				this.updateCanvasTransform();
+			} else if (this.isDragging && this.selectedNodeId && this.mindmapData) {
+				// 拖动节点
 				const node = this.findNodeById(this.mindmapData, this.selectedNodeId);
 				if (node) {
 					const rect = this.canvasElement.getBoundingClientRect();
@@ -45,6 +69,9 @@ export class MindmapCanvas {
 					node.y = y;
 					this.updateNodePosition(node);
 					this.updateConnections();
+					
+					// 检查是否悬停在其他节点上
+					this.checkNodeOverlap(e, node);
 				}
 			}
 		});
@@ -52,6 +79,16 @@ export class MindmapCanvas {
 		// 鼠标释放事件
 		this.canvasElement.addEventListener('mouseup', () => {
 			this.isDragging = false;
+			this.isDraggingCanvas = false;
+			this.canvasElement.style.cursor = 'grab';
+			this.clearDragOverTimeout();
+		});
+
+		// 防止上下文菜单在画布上显示
+		this.canvasElement.addEventListener('contextmenu', (e) => {
+			if (e.target === this.canvasElement) {
+				e.preventDefault();
+			}
 		});
 	}
 
@@ -89,9 +126,32 @@ export class MindmapCanvas {
 			nodeElement.addClass('list-node');
 		}
 
+		// 添加颜色样式
+		if (node.color && node.color !== 'default') {
+			nodeElement.addClass(`node-color-${node.color}`);
+		}
+
 		// 创建节点文本容器
 		const nodeText = nodeElement.createDiv('node-text');
 		this.renderNodeText(nodeText, node);
+
+		// 如果节点有子节点且被折叠，添加展开指示器
+		if (node.children.length > 0) {
+			const indicator = nodeElement.createDiv('collapse-indicator');
+			indicator.textContent = node.collapsed ? '+' : '-';
+			indicator.style.position = 'absolute';
+			indicator.style.right = '4px';
+			indicator.style.top = '4px';
+			indicator.style.width = '16px';
+			indicator.style.height = '16px';
+			indicator.style.borderRadius = '50%';
+			indicator.style.backgroundColor = 'var(--interactive-accent)';
+			indicator.style.color = 'var(--text-on-accent)';
+			indicator.style.fontSize = '12px';
+			indicator.style.textAlign = 'center';
+			indicator.style.lineHeight = '16px';
+			indicator.style.cursor = 'pointer';
+		}
 
 		// 存储节点元素引用
 		this.nodeElements.set(node.id, nodeElement);
@@ -99,8 +159,10 @@ export class MindmapCanvas {
 		// 添加事件监听器
 		this.setupNodeEventListeners(nodeElement, node);
 
-		// 递归渲染子节点
-		node.children.forEach(child => this.renderNode(child));
+		// 递归渲染子节点（只有未折叠时才渲染）
+		if (!node.collapsed) {
+			node.children.forEach(child => this.renderNode(child));
+		}
 	}
 
 	private renderNodeText(textElement: HTMLElement, node: MindmapNodeData) {
@@ -137,22 +199,42 @@ export class MindmapCanvas {
 			this.selectNode(node.id);
 		});
 
-		// 双击编辑节点
+		// 双击折叠/展开节点
 		element.addEventListener('dblclick', (e) => {
 			e.stopPropagation();
-			this.startEditing(node);
+			this.toggleNodeCollapse(node);
+		});
+
+		// 右键菜单
+		element.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.showNodeContextMenu(e, node);
 		});
 
 		// 鼠标按下开始拖拽
 		element.addEventListener('mousedown', (e) => {
-			e.preventDefault();
-			this.selectNode(node.id);
-			this.isDragging = true;
-			
-			const rect = this.canvasElement.getBoundingClientRect();
-			this.dragOffset.x = e.clientX - rect.left - (node.x || 0);
-			this.dragOffset.y = e.clientY - rect.top - (node.y || 0);
+			if (e.button === 0) { // 只响应左键
+				e.preventDefault();
+				e.stopPropagation();
+				this.selectNode(node.id);
+				this.isDragging = true;
+				this.dragStartTime = Date.now();
+				
+				const rect = this.canvasElement.getBoundingClientRect();
+				this.dragOffset.x = e.clientX - rect.left - (node.x || 0);
+				this.dragOffset.y = e.clientY - rect.top - (node.y || 0);
+			}
 		});
+
+		// 折叠指示器点击事件
+		const indicator = element.querySelector('.collapse-indicator');
+		if (indicator) {
+			indicator.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this.toggleNodeCollapse(node);
+			});
+		}
 	}
 
 	startNodeEditing(node: MindmapNodeData) {
@@ -314,8 +396,208 @@ export class MindmapCanvas {
 		}
 	}
 
+	private updateCanvasTransform() {
+		// 通过transform属性移动整个画布，而不是改变每个节点的位置
+		this.canvasElement.style.transform = `translate(${this.canvasOffset.x}px, ${this.canvasOffset.y}px)`;
+	}
+
+	private checkNodeOverlap(e: MouseEvent, draggedNode: MindmapNodeData) {
+		if (!this.mindmapData) return;
+		
+		const rect = this.canvasElement.getBoundingClientRect();
+		const mouseX = e.clientX - rect.left;
+		const mouseY = e.clientY - rect.top;
+		
+		const overlappingNode = this.findNodeAtPosition(mouseX, mouseY, draggedNode);
+		
+		if (overlappingNode && overlappingNode !== this.dragOverNode) {
+			this.clearDragOverTimeout();
+			this.dragOverNode = overlappingNode;
+			
+			// 设置2秒超时
+			this.dragOverTimeout = setTimeout(() => {
+				this.moveNodeToParent(draggedNode, overlappingNode);
+			}, 2000);
+		} else if (!overlappingNode) {
+			this.clearDragOverTimeout();
+		}
+	}
+
+	private findNodeAtPosition(x: number, y: number, excludeNode: MindmapNodeData): MindmapNodeData | null {
+		if (!this.mindmapData) return null;
+		
+		const allNodes = this.getAllNodes(this.mindmapData);
+		for (const node of allNodes) {
+			if (node === excludeNode || !node.x || !node.y) continue;
+			
+			const nodeWidth = 100; // 估算节点宽度
+			const nodeHeight = 50; // 估算节点高度
+			
+			if (x >= node.x && x <= node.x + nodeWidth &&
+				y >= node.y && y <= node.y + nodeHeight) {
+				return node;
+			}
+		}
+		return null;
+	}
+
+	private clearDragOverTimeout() {
+		if (this.dragOverTimeout) {
+			clearTimeout(this.dragOverTimeout);
+			this.dragOverTimeout = null;
+		}
+		this.dragOverNode = null;
+	}
+
+	private moveNodeToParent(childNode: MindmapNodeData, newParent: MindmapNodeData) {
+		if (!this.mindmapData || childNode === newParent || this.isAncestor(childNode, newParent)) {
+			return; // 防止循环引用
+		}
+		
+		// 从原父节点移除
+		if (childNode.parent) {
+			const index = childNode.parent.children.indexOf(childNode);
+			if (index > -1) {
+				childNode.parent.children.splice(index, 1);
+			}
+		}
+		
+		// 添加到新父节点
+		childNode.parent = newParent;
+		newParent.children.push(childNode);
+		
+		// 重新计算位置并重新渲染
+		this.view.recalculateAndRender();
+	}
+
+	private isAncestor(ancestor: MindmapNodeData, descendant: MindmapNodeData): boolean {
+		let current = descendant.parent;
+		while (current) {
+			if (current === ancestor) return true;
+			current = current.parent;
+		}
+		return false;
+	}
+
+	private getAllNodes(root: MindmapNodeData): MindmapNodeData[] {
+		const nodes: MindmapNodeData[] = [];
+		
+		function traverse(node: MindmapNodeData) {
+			if (node.id !== 'root') {
+				nodes.push(node);
+			}
+			node.children.forEach(child => traverse(child));
+		}
+		
+		traverse(root);
+		return nodes;
+	}
+
+	private toggleNodeCollapse(node: MindmapNodeData) {
+		if (node.children.length === 0) return;
+		
+		node.collapsed = !node.collapsed;
+		this.view.recalculateAndRender();
+	}
+
+	private showNodeContextMenu(e: MouseEvent, node: MindmapNodeData) {
+		// 移除已存在的菜单
+		const existingMenu = document.querySelector('.node-context-menu');
+		if (existingMenu) {
+			existingMenu.remove();
+		}
+		
+		const menu = document.createElement('div');
+		menu.className = 'node-context-menu';
+		menu.style.position = 'fixed';
+		menu.style.left = e.clientX + 'px';
+		menu.style.top = e.clientY + 'px';
+		menu.style.zIndex = '1000';
+		menu.style.backgroundColor = 'var(--background-primary)';
+		menu.style.border = '1px solid var(--background-modifier-border)';
+		menu.style.borderRadius = '4px';
+		menu.style.padding = '8px';
+		menu.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+		
+		const colors = [
+			{ name: '默认', value: 'default' },
+			{ name: '红色', value: 'red' },
+			{ name: '蓝色', value: 'blue' },
+			{ name: '绿色', value: 'green' },
+			{ name: '橙色', value: 'orange' },
+			{ name: '紫色', value: 'purple' }
+		];
+		
+		colors.forEach(color => {
+			const item = document.createElement('div');
+			item.textContent = color.name;
+			item.style.padding = '4px 8px';
+			item.style.cursor = 'pointer';
+			item.style.borderRadius = '2px';
+			
+			if (color.value !== 'default') {
+				item.style.color = `var(--color-${color.value})`;
+			}
+			
+			item.addEventListener('click', () => {
+				node.color = color.value as any;
+				this.view.recalculateAndRender();
+				menu.remove();
+			});
+			
+			item.addEventListener('mouseenter', () => {
+				item.style.backgroundColor = 'var(--background-modifier-hover)';
+			});
+			
+			item.addEventListener('mouseleave', () => {
+				item.style.backgroundColor = 'transparent';
+			});
+			
+			menu.appendChild(item);
+		});
+		
+		// 添加编辑选项
+		const editItem = document.createElement('div');
+		editItem.textContent = '编辑节点';
+		editItem.style.padding = '4px 8px';
+		editItem.style.cursor = 'pointer';
+		editItem.style.borderRadius = '2px';
+		editItem.style.borderTop = '1px solid var(--background-modifier-border)';
+		editItem.style.marginTop = '4px';
+		
+		editItem.addEventListener('click', () => {
+			this.startEditing(node);
+			menu.remove();
+		});
+		
+		editItem.addEventListener('mouseenter', () => {
+			editItem.style.backgroundColor = 'var(--background-modifier-hover)';
+		});
+		
+		editItem.addEventListener('mouseleave', () => {
+			editItem.style.backgroundColor = 'transparent';
+		});
+		
+		menu.appendChild(editItem);
+		
+		document.body.appendChild(menu);
+		
+		// 点击其他地方关闭菜单
+		const closeMenu = (event: MouseEvent) => {
+			if (!menu.contains(event.target as Node)) {
+				menu.remove();
+				document.removeEventListener('click', closeMenu);
+			}
+		};
+		
+		setTimeout(() => {
+			document.addEventListener('click', closeMenu);
+		}, 100);
+	}
+
 	destroy() {
 		// 清理事件监听器和DOM元素
+		this.clearDragOverTimeout();
 		this.nodeElements.clear();
 		this.selectedNodeId = null;
 		this.mindmapData = null;
