@@ -57,19 +57,23 @@ export class MindmapView extends ItemView {
 		
 		try {
 			const content = await this.app.vault.read(file);
+			
 			this.mindmapData = MarkdownParser.parseMarkdown(content);
 			
-			// 确保即使是空文档也有思维导图数据
-			if (!this.mindmapData || this.mindmapData.children.length === 0) {
-				// 创建默认的思维导图结构
+			// 如果解析结果为空或者没有有效的内容，创建默认的思维导图结构
+			if (!this.mindmapData || this.mindmapData.children.length === 0 || content.trim() === '') {
+				// 获取文件名作为根节点名称（不包含扩展名）
+				const fileName = file.basename;
+				
+				// 创建只有一个根节点的默认思维导图结构
 				const root: MindmapNodeData = {
 					id: 'root',
 					text: '根节点',
 					level: 0,
 					type: 'header',
 					children: [{
-						id: 'node-1',
-						text: '中心主题',
+						id: 'node-center',
+						text: fileName,
 						level: 1,
 						type: 'header',
 						children: [],
@@ -77,16 +81,28 @@ export class MindmapView extends ItemView {
 						originalText: '',
 						hasWikilink: false,
 						wikilinks: [],
-						color: 'red'
+						color: 'blue'
 					}],
 					lineNumber: -1,
 					originalText: '',
 					hasWikilink: false,
 					wikilinks: []
 				};
+				
 				// 设置父子关系
 				root.children[0].parent = root;
 				this.mindmapData = root;
+				
+				// 如果原文件是空的，保存默认结构到文件
+				if (content.trim() === '') {
+					try {
+						const markdown = MarkdownParser.generateMarkdown(this.mindmapData);
+						await this.app.vault.modify(file, markdown);
+						new Notice(`已为空白文档创建根节点: ${fileName}`);
+					} catch (error) {
+						console.error('Failed to save default structure:', error);
+					}
+				}
 			}
 			
 			MarkdownParser.calculateNodePositions(this.mindmapData);
@@ -145,6 +161,19 @@ export class MindmapView extends ItemView {
 			this.deleteSelectedNode();
 		});
 
+		// 保存文件按钮
+		const saveBtn = toolbar.createEl('button', {
+			text: '保存文件',
+			cls: 'mindmap-btn mindmap-btn-primary'
+		});
+		saveBtn.addEventListener('click', async () => {
+			try {
+				await this.saveToFile();
+			} catch (error) {
+				console.error('Save failed:', error);
+			}
+		});
+
 		// 设置按钮
 		const settingsBtn = toolbar.createEl('button', {
 			text: '设置',
@@ -187,7 +216,10 @@ export class MindmapView extends ItemView {
 			// 自动选中中心节点
 			const centerNode = this.findCenterNode(this.mindmapData);
 			if (centerNode) {
-				this.mindmapCanvas.selectNode(centerNode.id);
+				console.log('Auto-selecting center node:', centerNode.id);
+				setTimeout(() => {
+					this.mindmapCanvas.selectNode(centerNode.id);
+				}, 100);
 			}
 		} else {
 			// 如果仍然没有数据，显示空画布提示
@@ -288,6 +320,7 @@ export class MindmapView extends ItemView {
 		} catch (error) {
 			new Notice('保存失败');
 			console.error('Error saving file:', error);
+			throw error; // 重新抛出错误以便调用者处理
 		}
 	}
 
@@ -325,6 +358,8 @@ export class MindmapView extends ItemView {
 			await this.saveToFile();
 		} catch (error) {
 			console.error('Auto save failed:', error);
+			// 在自动保存失败时，显示一个不太突出的提示
+			new Notice('自动保存失败，请手动保存', 3000);
 		}
 	}, 1000);
 
@@ -365,109 +400,152 @@ export class MindmapView extends ItemView {
 	}
 
 	private setupKeyboardListeners() {
-		// 在document上添加全局键盘监听，确保能捕获所有按键
-		const keydownHandler = (e: KeyboardEvent) => {
-			// 只在思维导图视图处于激活状态时处理
-			const activeView = this.app.workspace.getActiveViewOfType(MindmapView);
-			if (activeView === this) {
-				this.handleKeyDown(e);
+		console.log('Setting up keyboard listeners for MindmapView');
+		
+		// 主要的键盘事件处理器
+		const globalKeyHandler = (e: KeyboardEvent) => {
+			// 检查当前视图是否是思维导图视图
+			const currentView = this.app.workspace.getActiveViewOfType(MindmapView);
+			if (currentView !== this) {
+				return; // 不是当前视图，忽略
 			}
+			
+			console.log('Global key handler - Key:', e.key, 'Target:', e.target);
+			this.handleKeyDown(e);
 		};
 		
-		document.addEventListener('keydown', keydownHandler);
+		// 在全局添加键盘监听
+		document.addEventListener('keydown', globalKeyHandler, true); // 使用 capture 阶段
 		
-		// 存储handler引用以便清理
+		// 清理函数
 		this.register(() => {
-			document.removeEventListener('keydown', keydownHandler);
+			document.removeEventListener('keydown', globalKeyHandler, true);
 		});
 		
-		// 确保容器可以接收焦点
-		this.containerEl.setAttribute('tabindex', '0');
+		// 确保视图容器可以获得焦点
+		this.containerEl.setAttribute('tabindex', '-1');
+		this.containerEl.style.outline = 'none';
 		
-		// 添加点击事件确保容器获得焦点
-		this.containerEl.addEventListener('click', () => {
-			this.containerEl.focus();
+		// 点击时确保获得焦点
+		this.containerEl.addEventListener('mousedown', () => {
+			console.log('MindmapView container clicked, focusing...');
+			setTimeout(() => this.containerEl.focus(), 10);
 		});
 		
-		// 立即设置焦点
-		setTimeout(() => {
-			this.containerEl.focus();
-		}, 100);
+		// 监听视图激活事件
+		this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+			if (leaf?.view === this) {
+				console.log('MindmapView became active');
+				setTimeout(() => this.containerEl.focus(), 50);
+			}
+		}));
 	}
 
 	private handleKeyDown(e: KeyboardEvent) {
+		console.log('handleKeyDown called - Key:', e.key, 'Target:', (e.target as HTMLElement)?.tagName, 'Ctrl:', e.ctrlKey, 'Alt:', e.altKey);
+		
+		// 忽略单独的修饰键
+		if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+			return;
+		}
+		
 		// 如果当前在输入框中或者在编辑状态，不处理快捷键
 		const target = e.target as HTMLElement;
-		if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+		if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) {
+			console.log('Key ignored - editing mode');
 			return;
 		}
 		
 		const selectedNode = this.mindmapCanvas.getSelectedNode();
 		const settings = this.plugin.settings;
 		
-		// 检查删除快捷键 - 使用设置中的配置
-		if ((e.key === settings.deleteKey || e.key === 'Delete' || e.key === 'Backspace') && selectedNode && !this.isEditing()) {
-			e.preventDefault();
-			e.stopPropagation();
-			this.deleteSelectedNode();
+		console.log('Selected node:', selectedNode?.id);
+		
+		// Ctrl+M - 切换模式（但不在这里处理，让它冒泡到全局处理器）
+		if (e.ctrlKey && e.key === 'm') {
+			console.log('Ctrl+M detected, letting it bubble to global handler');
+			// 不阻止事件，让它传递给Obsidian的命令系统
 			return;
 		}
 		
-		// 检查添加子节点快捷键 - 使用设置中的配置
-		if ((e.key === settings.addChildKey || e.key === 'Tab') && selectedNode && !this.isEditing()) {
-			e.preventDefault();
-			e.stopPropagation();
-			this.addChildToSelectedNode();
-			return;
-		}
-		
-		// 检查i键编辑快捷键
-		if (e.key === 'i' && selectedNode && !this.isEditing()) {
-			e.preventDefault();
-			e.stopPropagation();
-			this.startEditingSelectedNode();
-			return;
-		}
-
-		// 检查Ctrl+Z撤销
-		if (e.ctrlKey && e.key === 'z' && !this.isEditing()) {
-			e.preventDefault();
-			e.stopPropagation();
-			this.undo();
-			return;
-		}
-		
-		// 检查编辑快捷键
-		if (e.key === settings.editKey && selectedNode && !this.isEditing()) {
-			e.preventDefault();
-			this.startEditingSelectedNode();
-			return;
-		}
-		
-		// 方向键导航
-		if (!this.isEditing()) {
-			switch (e.key) {
-				case 'ArrowUp':
-					e.preventDefault();
-					this.navigateNode('up');
-					return;
-				case 'ArrowDown':
-					e.preventDefault();
-					this.navigateNode('down');
-					return;
-				case 'ArrowLeft':
-					e.preventDefault();
-					this.navigateNode('left');
-					return;
-				case 'ArrowRight':
-					e.preventDefault();
-					this.navigateNode('right');
-					return;
+		// Tab键 - 添加子节点
+		if (e.key === 'Tab') {
+			console.log('Tab key pressed');
+			if (selectedNode && !this.isEditing()) {
+				e.preventDefault();
+				e.stopPropagation();
+				console.log('Adding child to node:', selectedNode.id);
+				this.addChildToSelectedNode();
+				return;
+			} else {
+				console.log('Tab ignored - no selected node or editing');
 			}
 		}
 		
-		// 检查取消快捷键
-		if (e.key === settings.cancelKey) {
+		// Backspace/Delete键 - 删除节点
+		if (e.key === 'Backspace' || e.key === 'Delete') {
+			console.log('Delete/Backspace key pressed');
+			if (selectedNode && !this.isEditing()) {
+				e.preventDefault();
+				e.stopPropagation();
+				console.log('Deleting node:', selectedNode.id);
+				this.deleteSelectedNode();
+				return;
+			} else {
+				console.log('Delete ignored - no selected node or editing');
+			}
+		}
+		
+		// i键 - 编辑节点
+		if (e.key === 'i') {
+			console.log('i key pressed');
+			if (selectedNode && !this.isEditing()) {
+				e.preventDefault();
+				e.stopPropagation();
+				console.log('Starting edit for node:', selectedNode.id);
+				this.startEditingSelectedNode();
+				return;
+			}
+		}
+		
+		// Enter键 - 编辑节点
+		if (e.key === 'Enter') {
+			console.log('Enter key pressed');
+			if (selectedNode && !this.isEditing()) {
+				e.preventDefault();
+				e.stopPropagation();
+				console.log('Starting edit for node:', selectedNode.id);
+				this.startEditingSelectedNode();
+				return;
+			}
+		}
+
+		// Ctrl+Z - 撤销
+		if (e.ctrlKey && e.key === 'z') {
+			console.log('Ctrl+Z pressed');
+			if (!this.isEditing()) {
+				e.preventDefault();
+				e.stopPropagation();
+				this.undo();
+				return;
+			}
+		}
+		
+		// 方向键导航
+		if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+			console.log('Arrow key pressed:', e.key);
+			if (!this.isEditing()) {
+				e.preventDefault();
+				e.stopPropagation();
+				const direction = e.key.replace('Arrow', '').toLowerCase() as 'up' | 'down' | 'left' | 'right';
+				this.navigateNode(direction);
+				return;
+			}
+		}
+		
+		// Escape键 - 取消
+		if (e.key === 'Escape') {
+			console.log('Escape key pressed');
 			if (this.isEditing()) {
 				e.preventDefault();
 				this.cancelEditing();
@@ -476,6 +554,8 @@ export class MindmapView extends ItemView {
 			}
 			return;
 		}
+		
+		console.log('Key not handled:', e.key);
 	}
 
 	private isEditing(): boolean {
@@ -675,14 +755,40 @@ export class MindmapView extends ItemView {
 	private saveToHistory() {
 		if (!this.mindmapData) return;
 		
-		// 深拷贝当前状态
-		const state = JSON.parse(JSON.stringify(this.mindmapData));
+		// 创建一个不包含循环引用的深拷贝
+		const createCleanCopy = (node: MindmapNodeData): any => {
+			const clean: any = {
+				id: node.id,
+				text: node.text,
+				level: node.level,
+				type: node.type,
+				lineNumber: node.lineNumber,
+				originalText: node.originalText,
+				hasWikilink: node.hasWikilink,
+				wikilinks: [...(node.wikilinks || [])],
+				color: node.color,
+				collapsed: node.collapsed,
+				x: node.x,
+				y: node.y,
+				children: []
+			};
+			
+			// 递归处理子节点，但不包含parent引用
+			if (node.children) {
+				clean.children = node.children.map(child => createCleanCopy(child));
+			}
+			
+			return clean;
+		};
+		
+		// 创建干净的状态拷贝
+		const cleanState = createCleanCopy(this.mindmapData);
 		
 		// 移除历史记录中当前索引之后的所有记录
 		this.history = this.history.slice(0, this.historyIndex + 1);
 		
 		// 添加新状态
-		this.history.push(state);
+		this.history.push(cleanState);
 		this.historyIndex++;
 		
 		// 限制历史记录数量
@@ -690,6 +796,8 @@ export class MindmapView extends ItemView {
 			this.history.shift();
 			this.historyIndex--;
 		}
+		
+		console.log('Saved to history, index:', this.historyIndex, 'length:', this.history.length);
 	}
 
 	private undo() {

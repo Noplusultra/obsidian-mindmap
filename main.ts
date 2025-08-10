@@ -145,29 +145,51 @@ export default class MindmapPlugin extends Plugin {
 	}
 
 	async toggleMindmapMode() {
+		console.log('toggleMindmapMode called');
+		
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile || activeFile.extension !== 'md') {
+			console.log('No active markdown file');
+			new Notice('只能在Markdown文件中使用此功能');
 			return;
 		}
 
+		console.log('Active file:', activeFile.path);
 		const { workspace } = this.app;
 		const activeLeaf = workspace.getActiveViewOfType(MindmapView);
 		
+		console.log('Current active leaf is MindmapView:', !!activeLeaf);
+		console.log('Current workspace active leaf type:', workspace.activeLeaf?.view?.getViewType());
+		
 		if (activeLeaf) {
-			// 当前是思维导图模式，在当前叶子节点中切换到MD编辑器
-			const leaf = workspace.activeLeaf;
-			if (leaf) {
-				await leaf.openFile(activeFile);
-			}
-		} else {
-			// 当前是MD编辑器，在当前叶子节点中切换到思维导图模式
+			// 当前是思维导图模式，切换到MD编辑器
+			console.log('Switching from mindmap to markdown editor');
 			const currentLeaf = workspace.activeLeaf;
 			if (currentLeaf) {
+				// 直接在当前叶子节点中打开文件，这将替换思维导图视图为Markdown编辑器
+				await currentLeaf.openFile(activeFile);
+				new Notice('已切换到Markdown编辑模式');
+			}
+		} else {
+			// 当前是MD编辑器，切换到思维导图模式
+			console.log('Switching from markdown editor to mindmap');
+			const currentLeaf = workspace.activeLeaf;
+			if (currentLeaf) {
+				// 检查文件内容，如果为空则先添加基本结构
+				const content = await this.app.vault.read(activeFile);
+				console.log('File content length:', content.length);
+				
+				if (!content.trim()) {
+					console.log('File is empty, will create default structure in mindmap view');
+				}
+				
 				await currentLeaf.setViewState({ 
 					type: VIEW_TYPE_MINDMAP, 
 					active: true,
 					state: { file: activeFile.path }
 				});
+				new Notice('已切换到思维导图模式');
+				console.log('Switched to mindmap mode');
 			}
 		}
 	}
